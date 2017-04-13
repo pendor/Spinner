@@ -1,27 +1,3 @@
-Pins:
-
-D0-Serial
-D1-Serial
-D2-Rem1
-D3-Rem2
-D4-Motor
-D5-Rem3
-D6-Rem4
-D7-Motor
-D8-Motor
-D9-Hall Sensor
-D10
-D11-Motor
-D12-Motor
-D13-Touch_Reset_
-
-A0
-A1
-A2
-A3
-A4 SDA
-A5 SDC
-
 External connectors:
 Power
 Antenna
