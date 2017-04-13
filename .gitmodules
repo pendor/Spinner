@@ -1,3 +1,6 @@
 [submodule "Arduino-Makefile"]
 	path = Arduino-Makefile
 	url = https://github.com/sudar/Arduino-Makefile.git
+[submodule "lib/Adafruit-v1"]
+	path = lib/Adafruit-v1
+	url = https://github.com/adafruit/Adafruit-Motor-Shield-library.git
