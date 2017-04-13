@@ -13,11 +13,32 @@
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_CAP1188.h>
+#include <AFMotor.h>
 
 LiquidCrystal_I2C lcd(LCD_I2C, LCD_COLS, LCD_ROWS);
 Adafruit_CAP1188 cap = Adafruit_CAP1188(PIN_TOUCH_RESET);
+AF_DCMotor motor(1, MOTOR12_64KHZ); // create motor #1, 64KHz pwm
+
+uint8_t motor_speed = 100; // 0..255 = 0..100%
 
 long turns = 0l;
+
+uint8_t bumpMotorSpeed(int8_t p_bump) {
+  if(p_bump > 0) {
+    if(((int)motor_speed + (int)p_bump) > 255) {
+      motor_speed = 255;
+    } else {
+      motor_speed = motor_speed + p_bump;
+    }
+  } else if(p_bump < 0){
+    if(((int)motor_speed - (int)p_bump) < 0) {
+      motor_speed = 0;
+    } else {
+      motor_speed = motor_speed - p_bump;
+    }
+  } 
+  return motor_speed;
+};
 
 void setup() {
   lcd.init();                      // initialize the lcd 
@@ -40,6 +61,8 @@ void setup() {
     while (1);
   }
   Serial.println("CAP1188 found!");
+  
+  motor.setSpeed(motor_speed);
 }
 /*
   TODO: Move pins around so hall sensor on D2, toggle for all the inputs to D3.
@@ -67,16 +90,42 @@ Auto slow down as we get near the end.
 void loop() {
   int touched = checkTouch();
   lcd.setCursor(0, 0);
-  if(touched >= 0) {
-    Serial.print("Touched");
-    Serial.print(touched);
-    Serial.println();
+  
+  switch(touched) {
+    case BTN_STOP1:
+    case BTN_STOP2:
+    case BTN_CANCEL:
+    case BTN_OK:
+      lcd.print("STOP                ");
+      motor.run(RELEASE);
+      break;
     
-    lcd.setCursor(0, 0);
-    lcd.print("Touch: ");
-    lcd.print(touched);
-  } else {
-    lcd.print("                    ");
+    case BTN_UP:
+      motor.setSpeed(bumpMotorSpeed(10));
+      lcd.print("SP+ = ");
+      lcd.print(motor_speed);
+      lcd.print("    ");
+      break;
+      
+    case BTN_DOWN:
+      motor.setSpeed(bumpMotorSpeed(-10));
+      lcd.print("SP- = ");
+      lcd.print(motor_speed);
+      lcd.print("    ");
+      break;
+    
+    case BTN_GO_CW:
+      lcd.print("GO CW               ");
+      motor.run(FORWARD);
+      break;
+    
+    case BTN_GO_CCW:
+      lcd.print("GO CCW              ");
+      motor.run(BACKWARD);
+      break;
+    default:
+      lcd.print("                    ");
+      break;
   }
 }
 
