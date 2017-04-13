@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+int checkTouch();
+
 //end of add your includes here
 #ifdef __cplusplus
 extern "C" {

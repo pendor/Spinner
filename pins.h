@@ -5,6 +5,13 @@
 
 // Definitions for pin assignments
 
+// FIXME: Need to move Rem1 off D2 so we canuse it for interrupt.
+// Tie remote plus interrupt pin of touch sensor to D2 and trigger
+// interrupt.
+
+// FIXME: Need the hall sensor on an interrupt.  Gotta get the newer
+// motor shield for that.  Grr...
+
 // D0   Serial
 // D1   Serial
 // D2   Rem1

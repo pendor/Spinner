@@ -7,4 +7,3 @@
 [submodule "libs/Adafruit_CAP1188"]
 	path = libs/Adafruit_CAP1188
 	url = https://github.com/adafruit/Adafruit_CAP1188_Library.git
-
