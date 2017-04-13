@@ -8,6 +8,7 @@
 
 #include "main.h"
 #include "pins.h"
+#include "buttons.h"
 
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
@@ -64,7 +65,8 @@ Auto slow down as we get near the end.
 */
 
 void loop() {
-  uint8_t touched = checkTouch();
+  int touched = checkTouch();
+  lcd.setCursor(0, 0);
   if(touched >= 0) {
     Serial.print("Touched");
     Serial.print(touched);
@@ -73,19 +75,26 @@ void loop() {
     lcd.setCursor(0, 0);
     lcd.print("Touch: ");
     lcd.print(touched);
+  } else {
+    lcd.print("                    ");
   }
 }
 
+/** Check which button is touched.
+ * FIXME: Board allows multi-touch, but buttons are checked in
+ * index order.  We should check buttons in priority to make sure
+ * STOP wins.
+ */ 
 int checkTouch() {
-  uint8_t touched = cap.touched();
+  int8_t touched = cap.touched();
   if(touched == 0) {
     // No touch detected
     return -1;
   }
   
   for(uint8_t i=0; i<8; i++) {
-    if(touched & (1 << i)) {
-      return i;
+    if(touched & (1 << BUTTON_CHECK_ORDER[i])) {
+      return BUTTON_CHECK_ORDER[i];
     }
   }
   return -1;
