@@ -1,3 +1,6 @@
+// From https://github.com/mrkaleArduinoLib/LiquidCrystal_I2C,
+// but modified to work outside Arduino IDE.
+
 #include <Wire.h>
 #include "LiquidCrystal_I2C.h"
 
