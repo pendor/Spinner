@@ -1,0 +1,18 @@
+LCD
+http://wiki.sunfounder.cc/index.php?title=I2C_LCD2004
+i2c 0x27
+
+
+CAP1188 touch interface
+https://learn.adafruit.com/adafruit-cap1188-breakout/wiring
+i2c 0x29 or 0x28 (bridge AD to 3v)
+
+motor shield
+https://learn.adafruit.com/adafruit-motor-shield
+https://github.com/adafruit/Adafruit-Motor-Shield-library/zipball/master
+D4,7,8,12
+D11=motor1
+
+
+
+
