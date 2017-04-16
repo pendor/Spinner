@@ -1,8 +1,6 @@
 #include <Arduino.h>
 //#include <EEPROM.h>
-#ifndef DEBUG
-#include <avr/wdt.h>
-#endif
+
 #include <stddef.h>
 #include <stdlib.h>
 
@@ -13,48 +11,53 @@
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_CAP1188.h>
-#include <AFMotor.h>
+#include <Adafruit_MotorShield.h>
 
 LiquidCrystal_I2C lcd(LCD_I2C, LCD_COLS, LCD_ROWS);
 Adafruit_CAP1188 cap = Adafruit_CAP1188(PIN_TOUCH_RESET);
-AF_DCMotor motor(1, MOTOR12_64KHZ); // create motor #1, 64KHz pwm
+Adafruit_MotorShield motorShield = Adafruit_MotorShield(MOTOR_I2C);
+Adafruit_DCMotor *motor = motorShield.getMotor(4);
 
 uint8_t motor_speed = 100; // 0..255 = 0..100%
+int direction = RELEASE;
 
 long turns = 0l;
 
-uint8_t bumpMotorSpeed(int8_t p_bump) {
-  if(p_bump > 0) {
-    if(((int)motor_speed + (int)p_bump) > 255) {
-      motor_speed = 255;
-    } else {
-      motor_speed = motor_speed + p_bump;
-    }
-  } else if(p_bump < 0){
-    if(((int)motor_speed - (int)p_bump) < 0) {
-      motor_speed = 0;
-    } else {
-      motor_speed = motor_speed - p_bump;
-    }
-  } 
-  return motor_speed;
+void bumpMotorSpeed(int p_bump) {
+  int m = motor_speed;
+  m = m + p_bump;
+  if(m > 255) {
+    m = 255;
+  } else if(m < 0) {
+    m = 0;
+  }
+  motor_speed = (uint8_t)m;
+  motor->setSpeed(motor_speed);
 };
+
+void setDirection(int p_dir) {
+  direction = p_dir;
+  motor->run(p_dir);
+}
+
+void reverse() {
+  if(direction == FORWARD) {
+    setDirection(BACKWARD);
+  } else if(direction == BACKWARD) {
+    setDirection(FORWARD);
+  }
+}
 
 void setup() {
   lcd.init();                      // initialize the lcd 
  
   // Print a message to the LCD.
   lcd.backlight();
-  lcd.print("Hello, world!");
+  // lcd.print("Hello, world!");
   
-  lcd.setCursor ( 0, 0 );            // go to the top left corner
-  lcd.print("    Hello,world!    "); // write this string on the top row
-  lcd.setCursor ( 0, 1 );            // go to the 2nd row
-  lcd.print("   IIC/I2C LCD2004  "); // pad string with spaces for centering
-  lcd.setCursor ( 0, 2 );            // go to the third row
-  lcd.print("  20 cols, 4 rows   "); // pad with spaces for centering
-  lcd.setCursor ( 0, 3 );            // go to the fourth row
-  lcd.print(" www.sunfounder.com ");
+  
+  // lcd.setCursor ( 0, 1 );
+//lcd.print("   IIC/I2C LCD2004  ");
   
   if(!cap.begin(TOUCH_I2C)) {
     Serial.println("CAP1188 not found");
@@ -62,8 +65,17 @@ void setup() {
   }
   Serial.println("CAP1188 found!");
   
-  motor.setSpeed(motor_speed);
+  pinMode(PIN_REMOTE_1, INPUT);
+  pinMode(PIN_REMOTE_2, INPUT);
+  pinMode(PIN_REMOTE_3, INPUT);
+  pinMode(PIN_REMOTE_4, INPUT);
+  
+  pinMode(PIN_HALL, INPUT);
+  
+  motorShield.begin();  // create with the default frequency 1.6KHz
+  motor->setSpeed(motor_speed);
 }
+
 /*
   TODO: Move pins around so hall sensor on D2, toggle for all the inputs to D3.
 
@@ -87,46 +99,79 @@ Auto slow down as we get near the end.
 
 */
 
+void faster() {
+  lcd.setCursor(0, 0);
+  bumpMotorSpeed(10);
+  lcd.print("SP+ = ");
+  lcd.print(motor_speed);
+  lcd.print("    ");
+}
+
+void slower() {
+  lcd.setCursor(0, 0);
+  bumpMotorSpeed(-10);
+  lcd.print("SP- = ");
+  lcd.print(motor_speed);
+  lcd.print("    ");
+}
+
 void loop() {
   int touched = checkTouch();
-  lcd.setCursor(0, 0);
+  lcd.setCursor(0, 0);  
   
   switch(touched) {
     case BTN_STOP1:
     case BTN_STOP2:
     case BTN_CANCEL:
     case BTN_OK:
-      lcd.print("STOP                ");
-      motor.run(RELEASE);
+      setDirection(RELEASE);
       break;
     
     case BTN_UP:
-      motor.setSpeed(bumpMotorSpeed(10));
-      lcd.print("SP+ = ");
-      lcd.print(motor_speed);
-      lcd.print("    ");
+      faster();
       break;
       
     case BTN_DOWN:
-      motor.setSpeed(bumpMotorSpeed(-10));
-      lcd.print("SP- = ");
-      lcd.print(motor_speed);
-      lcd.print("    ");
+      slower();
       break;
     
     case BTN_GO_CW:
-      lcd.print("GO CW               ");
-      motor.run(FORWARD);
+      setDirection(FORWARD);
       break;
     
     case BTN_GO_CCW:
-      lcd.print("GO CCW              ");
-      motor.run(BACKWARD);
+      setDirection(BACKWARD);
       break;
     default:
-      lcd.print("                    ");
       break;
   }
+  
+  // Remote buttons:
+  // Faster, Slower, Reverse, Stop
+  if(digitalRead(PIN_REMOTE_2) == HIGH) {
+    setDirection(RELEASE);
+  }
+  
+  if(digitalRead(PIN_REMOTE_4) == HIGH) {
+    reverse();
+  }
+  
+  if(digitalRead(PIN_REMOTE_1) == HIGH) {
+    faster();
+  }
+  
+  if(digitalRead(PIN_REMOTE_3) == HIGH) {
+    slower();
+  }
+  
+  lcd.setCursor(0, 2);
+  if(digitalRead(PIN_HALL) == HIGH) {
+    lcd.print("HALL                ");
+  } else {
+    lcd.print("                    ");
+  }
+  
+
 }
 
 /** Check which button is touched.
