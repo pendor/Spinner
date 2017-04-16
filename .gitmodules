@@ -4,3 +4,6 @@
 [submodule "libs/Adafruit_CAP1188"]
 	path = libs/Adafruit_CAP1188
 	url = https://github.com/adafruit/Adafruit_CAP1188_Library.git
+[submodule "libs/Adafruit_Motor_v2"]
+	path = libs/Adafruit_Motor_v2
+	url = https://github.com/adafruit/Adafruit_Motor_Shield_V2_Library.git
