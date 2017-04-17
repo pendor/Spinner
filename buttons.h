@@ -13,6 +13,9 @@
 #define BTN_STOP1   3
 #define BTN_STOP2   4
 
+// Allow repeat on the up & down buttons only.
+#define REPEAT_MASK 0x81
+
 // Order to check buttons in more or less
 // least destructive order.
 uint8_t BUTTON_CHECK_ORDER[] = {

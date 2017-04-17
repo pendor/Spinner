@@ -3,7 +3,25 @@
 
 #include <Arduino.h>
 
-int checkTouch();
+void slower();
+void faster();
+void bumpMotorSpeed(int p_bump);
+void setDirection(int p_dir);
+void motorCcw();
+void motorCw();
+void motorStop();
+void reverse();
+void processTouch();
+
+void intTouchInput();
+void intHallSwitch();
+
+void initTouch();
+void initRemote();
+void initHall();
+void initMotor();
+void enablePinChangeInterrupt(byte pin);
+void clearTouchInt();
 
 //end of add your includes here
 #ifdef __cplusplus
