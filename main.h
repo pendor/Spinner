@@ -12,15 +12,16 @@ void motorCw();
 void motorStop();
 void reverse();
 void processTouch();
+void checkRemoteButtons();
 
 void intTouchInput();
 void intHallSwitch();
+void clearPci();
 
 void initTouch();
 void initRemote();
 void initHall();
 void initMotor();
-void enablePinChangeInterrupt(byte pin);
 void clearTouchInt();
 
 //end of add your includes here

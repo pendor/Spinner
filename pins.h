@@ -37,6 +37,7 @@
 #define PIN_HALL         2
 #define PIN_TOUCH_INT    3
 #define PIN_TOUCH_RESET  4
+
 #define PIN_REMOTE_1    10
 #define PIN_REMOTE_2     8
 #define PIN_REMOTE_3    11

@@ -14,6 +14,8 @@
 #include "cap1188.h"
 #include <Adafruit_MotorShield.h>
 
+// #define RF_INTERRUPTS
+
 LiquidCrystal_I2C lcd(LCD_I2C, LCD_COLS, LCD_ROWS);
 Adafruit_CAP1188 cap = Adafruit_CAP1188(PIN_TOUCH_RESET);
 Adafruit_MotorShield motorShield = Adafruit_MotorShield(MOTOR_I2C);
@@ -74,6 +76,10 @@ void loop() {
     clearTouchInt();
   }
   
+#ifndef RF_INTERRUPTS
+  checkRemoteButtons();
+#endif
+  
   if(millis() - lastCommandTime < 100) {
     lcd.setCursor(0,2);
     lcd.print("Last:");
@@ -91,7 +97,7 @@ void loop() {
     lcd.setCursor(7, 1);
     lcd.print(turns);
     
-    turns = lastTurn;
+    lastTurn = turns;
   }
 }
 
@@ -261,7 +267,7 @@ void initTouch() {
 
 void initHall() {
   pinMode(PIN_HALL, INPUT);
-  //attachInterrupt(digitalPinToInterrupt(PIN_HALL), intHallSwitch, RISING);
+  attachInterrupt(digitalPinToInterrupt(PIN_HALL), intHallSwitch, RISING);
 }
 
 void initMotor() {
@@ -269,45 +275,94 @@ void initMotor() {
   motor->setSpeed(motor_speed);
 }
 
-void enablePinChangeInterrupt(byte pin) {
-  *digitalPinToPCMSK(pin) |= bit (digitalPinToPCMSKbit(pin));  // enable pin
-  PCIFR |= bit (digitalPinToPCICRbit(pin)); // clear any outstanding interrupt
-  PCICR |= bit (digitalPinToPCICRbit(pin)); // enable interrupt for the group 
-}
-
 void initRemote() {
   pinMode(PIN_REMOTE_1, INPUT);
   pinMode(PIN_REMOTE_2, INPUT);
   pinMode(PIN_REMOTE_3, INPUT);
   pinMode(PIN_REMOTE_4, INPUT);
+  
+#ifdef RF_INTERRUPTS
+  noInterrupts();
+  
+  // enable pin interrupts
+  *digitalPinToPCMSK(PIN_REMOTE_1) |= (1 << digitalPinToPCMSKbit(PIN_REMOTE_1));
+  *digitalPinToPCMSK(PIN_REMOTE_1) |= (1 << digitalPinToPCMSKbit(PIN_REMOTE_2));
+  *digitalPinToPCMSK(PIN_REMOTE_1) |= (1 << digitalPinToPCMSKbit(PIN_REMOTE_3));
+  *digitalPinToPCMSK(PIN_REMOTE_1) |= (1 << digitalPinToPCMSKbit(PIN_REMOTE_4));
 
-  // enablePinChangeInterrupt(PIN_REMOTE_1);
-  // enablePinChangeInterrupt(PIN_REMOTE_2);
-  // enablePinChangeInterrupt(PIN_REMOTE_3);
-  // enablePinChangeInterrupt(PIN_REMOTE_4);
+  // Enable global interrupts
+  *digitalPinToPCICR(PIN_REMOTE_1) |= (1<<digitalPinToPCICRbit(PIN_REMOTE_1));
+  *digitalPinToPCICR(PIN_REMOTE_2) |= (1<<digitalPinToPCICRbit(PIN_REMOTE_2));
+  *digitalPinToPCICR(PIN_REMOTE_3) |= (1<<digitalPinToPCICRbit(PIN_REMOTE_3));
+  *digitalPinToPCICR(PIN_REMOTE_4) |= (1<<digitalPinToPCICRbit(PIN_REMOTE_4));
+
+  clearPci();
+  
+  // enable interrupt for the group 
+  PCICR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_1));
+  PCICR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_2));
+  PCICR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_3));
+  PCICR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_4));
+
+  interrupts();
+#endif
 }
 
+/** clear any outstanding interrupts. */
+void clearPci() {
+#ifdef RF_INTERRUPTS
+  PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_1));
+  PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_2));
+  PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_3));
+  PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_4));
+#endif
+}
+
+#ifdef RF_INTERRUPTS
 ISR(PCINT0_vect) {
-  if(digitalRead(PIN_REMOTE_2) == HIGH) {
+  Serial.println("B");
+  checkRemoteButtons();
+  clearPci();
+}
+#endif
+
+// Read PINB pins (D8..D13) by direct port access.
+// Faster & safer during ISR.
+#define digReadPinB(b) (PINB & bit(b - 8))
+
+void checkRemoteButtons() {
+  // digitalRead(PIN_REMOTE_2)
+  if(digReadPinB(PIN_REMOTE_2)) {
     // FIXME: Restart if held?
+    Serial.println("RStop");
     motorStop();
   }
   
-  if(digitalRead(PIN_REMOTE_4) == HIGH) {
+  // digitalRead(PIN_REMOTE_4)
+  if(digReadPinB(PIN_REMOTE_4)) {
+    Serial.println("RRev");
     reverse();
   }
   
-  if(digitalRead(PIN_REMOTE_1) == HIGH) {
+  // digitalRead(PIN_REMOTE_1)
+  if(digReadPinB(PIN_REMOTE_1)) {
+    Serial.println("R+");
     faster();
   }
   
-  if(digitalRead(PIN_REMOTE_3) == HIGH) {
+  //if(digitalRead(PIN_REMOTE_3) == HIGH) {
+  if(digReadPinB(PIN_REMOTE_3)) {
+    Serial.println("R-");
     slower();
   }
 }
 
 void intHallSwitch() {
-  turns++;
+  if(direction == FORWARD) {
+    turns++;
+  } else if(direction == BACKWARD) {
+    turns--;
+  } // else turned while not moving?  Ignore...
 }
 
 void intTouchInput() {
