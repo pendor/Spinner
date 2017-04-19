@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+// #define RF_INTERRUPTS
+
 void slower();
 void faster();
 void bumpMotorSpeed(int p_bump);
@@ -13,10 +15,14 @@ void motorStop();
 void reverse();
 void processTouch();
 void checkRemoteButtons();
+void updateDisplay();
 
 void intTouchInput();
 void intHallSwitch();
+
+#ifdef RF_INTERRUPTS
 void clearPci();
+#endif
 
 void initTouch();
 void initRemote();

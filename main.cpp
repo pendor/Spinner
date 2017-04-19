@@ -14,26 +14,33 @@
 #include "cap1188.h"
 #include <Adafruit_MotorShield.h>
 
-// #define RF_INTERRUPTS
+// Read PINB pins (D8..D13) by direct port access.
+// Faster & safer during ISR.
+#define digReadPinB(b) (PINB & bit(b - 8))
 
 LiquidCrystal_I2C lcd(LCD_I2C, LCD_COLS, LCD_ROWS);
 Adafruit_CAP1188 cap = Adafruit_CAP1188(PIN_TOUCH_RESET);
 Adafruit_MotorShield motorShield = Adafruit_MotorShield(MOTOR_I2C);
 Adafruit_DCMotor *motor = motorShield.getMotor(4);
 
-uint8_t motor_speed = 100; // 0..255 = 0..100%
-int direction = RELEASE;
-long turns = 0l;
-long lastTurn = -1l;
-bool touchChanged = false;
+// Used to de-bounce the touch panel
+long m_lastTouchTime = 0;
 
-long lastCommandTime = 0;
-const char *lastCommand = "";
+uint8_t m_motorSpeed = 100; // 0..255 = 0..100%
+int m_motorDirection = RELEASE;
+
+// Updated in the interrupt for the hall switch
+long m_turnCount = 0l;
+
+// Updated in the 
+bool m_touchChanged = false;
+
+long m_lastDisplayMillis = -1000000;
 
 void setup() {
   lcd.init();
-  lcd.setCursor(0,0);
   lcd.clear();
+  lcd.setCursor(0,0);
   lcd.backlight();
   lcd.print("One Sec...");
   
@@ -47,31 +54,8 @@ void setup() {
   lcd.clear(0,0);  
 }
 
-/*
-  TODO: Move pins around so hall sensor on D2, toggle for all the inputs to D3.
-
-https://www.arduino.cc/en/Reference/attachInterrupt
-https://learn.adafruit.com/multi-tasking-the-arduino-part-2/external-interrupts?gclid=CI3j4NL2odMCFVq4wAod1xULoA
-Add interrupt handler for all button pushes and separate one for the hall.
-LOW to trigger the interrupt whenever the pin is low,
-CHANGE to trigger the interrupt whenever the pin changes value
-RISING to trigger when the pin goes from low to high,
-FALLING for when the pin goes from high to low.
-
-attachInterrupt(digitalPinToInterrupt(pin), ISR, mode);
-
-Need menu handler routines.
-
- * Set spin count
- * Reset count
- * Set speed %
-
-Auto slow down as we get near the end.
-
-*/
-
 void loop() {
-  if(touchChanged) {
+  if(m_touchChanged) {
     processTouch();
     clearTouchInt();
   }
@@ -80,99 +64,93 @@ void loop() {
   checkRemoteButtons();
 #endif
   
-  if(millis() - lastCommandTime < 100) {
-    lcd.setCursor(0,2);
-    lcd.print("Last:");
-    lcd.clear(2, 5);
-    lcd.setCursor(6, 2);
-    lcd.print(lastCommand);
-  } else if(millis() - lastCommandTime > 2000 && millis() - lastCommandTime < 2100) {
-    lcd.clear(2, 0);
+  if(millis() - m_lastDisplayMillis > 5000) {
+    updateDisplay();
+    m_lastDisplayMillis = millis();
   }
-  
-  if(lastTurn != turns) {
-    lcd.setCursor(0, 1);
-    lcd.print("Turns:");
-    lcd.clear(1, 6);
-    lcd.setCursor(7, 1);
-    lcd.print(turns);
-    
-    lastTurn = turns;
+}
+
+void updateDisplay() {
+  lcd.setCursor(0, 1);
+  lcd.print("Turns:");
+  lcd.clear(1, 6);
+  lcd.setCursor(7, 1);
+  lcd.print(m_turnCount);
+
+  lcd.setCursor(0, 2);
+  lcd.print("Speed:");
+  lcd.clear(2, 6);
+  lcd.setCursor(7, 2);
+  lcd.print(m_motorSpeed);
+  switch(m_motorDirection) {
+    case FORWARD:
+    lcd.print(" CW");
+    lcd.setCursor(9, 2);
+    break;
+    case BACKWARD:
+    lcd.print(" CCW");
+    lcd.setCursor(10, 2);
+    break;
+    default:
+    lcd.print(" STOP");
+    lcd.setCursor(11, 2);
   }
 }
 
 void faster() {
-  lcd.setCursor(0, 0);
   bumpMotorSpeed(10);
-  lcd.print("SP+ = ");
-  lcd.print(motor_speed);
-  lcd.print("    ");
-
-  lastCommand = "faster";
-  lastCommandTime = millis();
 }
 
 void slower() {
-  lcd.setCursor(0, 0);
   bumpMotorSpeed(-10);
-  lcd.print("SP- = ");
-  lcd.print(motor_speed);
-  lcd.print("    ");
-  
-  lastCommand = "slower";
-  lastCommandTime = millis();
 }
 
 void bumpMotorSpeed(int p_bump) {
-  int m = motor_speed;
+  int m = m_motorSpeed;
   m = m + p_bump;
   if(m > 255) {
     m = 255;
   } else if(m < 0) {
     m = 0;
   }
-  motor_speed = (uint8_t)m;
-  motor->setSpeed(motor_speed);
+  m_motorSpeed = (uint8_t)m;
+  motor->setSpeed(m_motorSpeed);
+  m_lastDisplayMillis = 0;
 };
 
 void setDirection(int p_dir) {
-  direction = p_dir;
+  m_motorDirection = p_dir;
   motor->run(p_dir);
+  m_lastDisplayMillis = 0;
 }
 
 void motorCcw() {
   setDirection(BACKWARD);
-  lastCommand = "backward";
-  lastCommandTime = millis();
 }
 
 void motorCw() {
   setDirection(FORWARD);
-  lastCommand = "forward";
-  lastCommandTime = millis();
 }
 
 void motorStop() {
   setDirection(RELEASE);
-  lastCommand = "stop";
-  lastCommandTime = millis();
 }
 
 void reverse() {
-  if(direction == FORWARD) {
+  if(m_motorDirection == FORWARD) {
     setDirection(BACKWARD);
-  } else if(direction == BACKWARD) {
+  } else if(m_motorDirection == BACKWARD) {
     setDirection(FORWARD);
   }
-  lastCommand = "reverse";
-  lastCommandTime = millis();
 }
 
 void processTouch() {
   // Interrupt line seems to bounce a little...
-  if(millis() - lastCommandTime < 200) {
+  if(millis() - m_lastTouchTime < 200) {
     return;
   }
+  
+  m_lastTouchTime = millis();
   
   int8_t touchTranslated = -1;
   int8_t touched = cap.touched();
@@ -193,6 +171,7 @@ void processTouch() {
     return;
   }
 
+  // FIXME: Menu state machine goes here...
   switch(touchTranslated) {
     case BTN_STOP1:
     case BTN_STOP2:
@@ -272,7 +251,7 @@ void initHall() {
 
 void initMotor() {
   motorShield.begin();
-  motor->setSpeed(motor_speed);
+  motor->setSpeed(m_motorSpeed);
 }
 
 void initRemote() {
@@ -308,71 +287,59 @@ void initRemote() {
 #endif
 }
 
+#ifdef RF_INTERRUPTS
 /** clear any outstanding interrupts. */
 void clearPci() {
-#ifdef RF_INTERRUPTS
   PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_1));
   PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_2));
   PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_3));
   PCIFR |= (1 << digitalPinToPCICRbit(PIN_REMOTE_4));
-#endif
 }
 
-#ifdef RF_INTERRUPTS
 ISR(PCINT0_vect) {
-  Serial.println("B");
   checkRemoteButtons();
   clearPci();
 }
 #endif
 
-// Read PINB pins (D8..D13) by direct port access.
-// Faster & safer during ISR.
-#define digReadPinB(b) (PINB & bit(b - 8))
-
 void checkRemoteButtons() {
-  // digitalRead(PIN_REMOTE_2)
   if(digReadPinB(PIN_REMOTE_2)) {
     // FIXME: Restart if held?
-    Serial.println("RStop");
     motorStop();
   }
   
-  // digitalRead(PIN_REMOTE_4)
   if(digReadPinB(PIN_REMOTE_4)) {
-    Serial.println("RRev");
     reverse();
   }
   
-  // digitalRead(PIN_REMOTE_1)
   if(digReadPinB(PIN_REMOTE_1)) {
-    Serial.println("R+");
     faster();
   }
   
-  //if(digitalRead(PIN_REMOTE_3) == HIGH) {
   if(digReadPinB(PIN_REMOTE_3)) {
-    Serial.println("R-");
     slower();
   }
 }
 
+// ISR for the hall switch.  Increment or decrement the turn count.
 void intHallSwitch() {
-  if(direction == FORWARD) {
-    turns++;
-  } else if(direction == BACKWARD) {
-    turns--;
+  if(m_motorDirection == FORWARD) {
+    m_turnCount++;
+  } else if(m_motorDirection == BACKWARD) {
+    m_turnCount--;
   } // else turned while not moving?  Ignore...
+  m_lastDisplayMillis = 0;
 }
 
+// ISR for touch sensor.  Flag the touch so the main loop will deal with it.
 void intTouchInput() {
-  touchChanged = true;
+  m_touchChanged = true;
 }
 
+// Have to call this after we process the touch or we won't get any more.
 void clearTouchInt() {
-  touchChanged = false;
+  m_touchChanged = false;
   byte reg = cap.readRegister(CAP1188_MAIN);
   reg &= 0xFE;
   cap.writeRegister(CAP1188_MAIN, reg);
 }
-
