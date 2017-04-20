@@ -101,7 +101,7 @@ void loop() {
     saveSettings();
   }
   
-  if(isDone()) {
+  if(isDone() && m_motorDirection != RELEASE) {
     motorStop();
     m_lastDisplayMillis = 0;
   }
@@ -142,8 +142,28 @@ void resetBuffer() {
 }
 
 void updateDisplay() {
+  // Show a progress meter for turn count if we can.
+  float pos = 0;
+  if((m_turnCount > 0 && m_turnGoal > 0 && m_turnCount <= m_turnGoal)
+    ||
+    (m_turnCount < 0 && m_turnGoal < 0 && m_turnCount >= m_turnGoal)
+  ) {
+    pos = fabs(m_turnCount) / fabs(m_turnGoal);
+  }
+  
+  if(pos > 0) {
+    int blocks = (int)(pos * (float)LCD_COLS);
+    lcd.setCursor(0,0);
+    for(int i=0; i<=blocks; i++) {
+      lcd.print("+");
+    }
+    lcd.clear(0, blocks);
+  } else {
+    lcd.clear(0, 0);
+  }
+  
   resetBuffer();
-  snprintf(lineBuffer, LCD_COLS, "Turns: %5ld /%5ld", m_turnCount, m_turnGoal);  
+  snprintf(lineBuffer, LCD_COLS, "Turn: %4ld / %4ld", m_turnCount, m_turnGoal);  
   lcd.setCursor(0, 1);
   lcd.print(lineBuffer);
 
@@ -174,9 +194,9 @@ void updateDisplay() {
   
   lcd.setCursor(LCD_COLS-9, 3);
   if(m_setTurnMode) {
-    lcd.print("Mode: SET");
+    lcd.print("SET GOAL");
   } else {
-    lcd.print("Mode: RUN");
+    lcd.print("        ");
   }
 }
 
