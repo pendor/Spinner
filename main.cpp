@@ -1,5 +1,5 @@
 #include <Arduino.h>
-//#include <EEPROM.h>
+#include <EEPROM.h>
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -26,16 +26,35 @@ Adafruit_DCMotor *motor = motorShield.getMotor(4);
 // Used to de-bounce the touch panel
 long m_lastTouchTime = 0;
 
-uint8_t m_motorSpeed = 100; // 0..255 = 0..100%
-int m_motorDirection = RELEASE;
+byte m_motorSpeed = 100; // 0..255 = 0..100%
+byte m_motorDirection = RELEASE;
+
+// Stored before STOP
+byte m_lastMotorDirection = FORWARD;
 
 // Updated in the interrupt for the hall switch
 long m_turnCount = 0l;
+long m_turnGoal = -1l;
 
 // Updated in the 
 bool m_touchChanged = false;
 
 long m_lastDisplayMillis = -1000000;
+
+char lineBuffer[LCD_COLS + 1];
+
+// true, up/down sets turn goal, false they set speed.
+bool m_setTurnMode = false;
+
+// ms to hold button on remote before we decide it's held down.
+#define REMOTE_HOLD_TIME 300
+
+// Ignore subsequence presses in this time.
+#define DEBOUNCE_TIME 200
+
+// Array of last button down times to see if remote is holding its button
+// (touch sensor thankfully does that on its own...)
+long m_remoteDownTime[] = {-1l, -1l, -1l, -1l};
 
 void setup() {
   lcd.init();
@@ -45,6 +64,18 @@ void setup() {
   lcd.print("One Sec...");
   
   Serial.begin(9600);
+  
+  // Load our last goal & speed
+  byte speed;
+  EEPROM.get(EEPROM_SPEED_ADDR, speed);
+  m_motorSpeed = speed;
+  
+  long turns;
+  EEPROM.get(EEPROM_TURN_ADDR, turns);
+  if(turns > 1000000) {
+    turns = 100;
+  }
+  m_turnGoal = turns;
   
   initTouch();
   initRemote();  
@@ -64,37 +95,156 @@ void loop() {
   checkRemoteButtons();
 #endif
   
-  if(millis() - m_lastDisplayMillis > 5000) {
+  long mils = millis();
+  
+  if(mils - m_lastDisplayMillis >= 500 && !m_setTurnMode) {
+    saveSettings();
+  }
+  
+  if(isDone()) {
+    motorStop();
+    m_lastDisplayMillis = 0;
+  }
+  
+  if(mils - m_lastDisplayMillis > 5000) {
     updateDisplay();
     m_lastDisplayMillis = millis();
   }
 }
 
-void updateDisplay() {
-  lcd.setCursor(0, 1);
-  lcd.print("Turns:");
-  lcd.clear(1, 6);
-  lcd.setCursor(7, 1);
-  lcd.print(m_turnCount);
+void saveSettings() {
+  long cur;
+  EEPROM.get(EEPROM_TURN_ADDR, cur);
+  if(cur != m_turnGoal) {
+    EEPROM.put(EEPROM_TURN_ADDR, m_turnGoal);
+  }
+  
+  byte curSpeed;
+  EEPROM.get(EEPROM_SPEED_ADDR, curSpeed);
+  if(curSpeed != m_motorSpeed) {
+    EEPROM.put(EEPROM_SPEED_ADDR, m_motorSpeed);
+  }
+}
 
-  lcd.setCursor(0, 2);
-  lcd.print("Speed:");
-  lcd.clear(2, 6);
-  lcd.setCursor(7, 2);
-  lcd.print(m_motorSpeed);
+bool isDone() {
+  return
+    (m_motorDirection == FORWARD && m_turnGoal > 0 && m_turnCount >= m_turnGoal)
+      ||
+    (m_motorDirection == BACKWARD && m_turnGoal < 0 && m_turnCount <= m_turnGoal)
+      || 
+    (m_motorDirection == RELEASE && m_turnCount == m_turnGoal)
+  ;
+}
+
+void resetBuffer() {
+  lineBuffer[LCD_COLS] = 0;
+  memset(lineBuffer, ' ', LCD_COLS);
+}
+
+void updateDisplay() {
+  resetBuffer();
+  snprintf(lineBuffer, LCD_COLS, "Turns: %5ld /%5ld", m_turnCount, m_turnGoal);  
+  lcd.setCursor(0, 1);
+  lcd.print(lineBuffer);
+
+  const char *dir;
   switch(m_motorDirection) {
     case FORWARD:
-    lcd.print(" CW");
-    lcd.setCursor(9, 2);
+    dir = "CW  ";
     break;
     case BACKWARD:
-    lcd.print(" CCW");
-    lcd.setCursor(10, 2);
+    dir = "CCW ";
     break;
     default:
-    lcd.print(" STOP");
-    lcd.setCursor(11, 2);
+    dir = "STOP";
+    break;
   }
+  
+  resetBuffer();
+  snprintf(lineBuffer, LCD_COLS, "Speed: %3d :: %s", m_motorSpeed, dir);
+  lcd.setCursor(0, 2);
+  lcd.print(lineBuffer);
+  
+  lcd.setCursor(0, 3);
+  if(isDone()) {
+    lcd.print("DONE!");
+  } else {
+    lcd.print("     ");
+  }
+  
+  lcd.setCursor(LCD_COLS-9, 3);
+  if(m_setTurnMode) {
+    lcd.print("Mode: SET");
+  } else {
+    lcd.print("Mode: RUN");
+  }
+}
+
+/** Handle a button push based on state machine mode. */
+void button(int p_button, bool p_isHeld) {
+  // FIXME: Menu state machine goes here...
+  m_lastDisplayMillis = 0;
+  switch(p_button) {
+  case BTN_STOP1:
+  case BTN_STOP2:
+    if(m_setTurnMode) {
+      m_setTurnMode = false;
+    } else {
+      if(p_isHeld) {
+        // Hold button to resume.
+        setDirection(m_lastMotorDirection);
+      } else {
+        motorStop();
+      }
+    }
+    break;
+    
+  case BTN_CANCEL:
+    m_setTurnMode = false;
+    motorStop();
+    break;
+    
+  case BTN_OK:
+    m_setTurnMode = !m_setTurnMode;
+    if(m_setTurnMode) {
+      motorStop();
+    }
+    break;
+  
+  case BTN_UP:
+    if(m_setTurnMode) {
+      m_turnGoal += 10;
+    } else {
+      faster();
+    }
+    break;
+    
+  case BTN_DOWN:
+    if(m_setTurnMode) {
+      m_turnGoal -= 10;
+    } else {
+      slower();
+    }
+    break;
+  
+  case BTN_GO_CW:
+    if(!m_setTurnMode) {
+      motorCw();
+    }
+    break;
+  
+  case BTN_GO_CCW:
+    if(!m_setTurnMode) {
+      motorCcw();
+    }
+    break;
+  case BTN_RESET:
+    m_turnCount = 0;
+    break;
+    
+  default:
+    break;
+  } 
 }
 
 void faster() {
@@ -119,6 +269,11 @@ void bumpMotorSpeed(int p_bump) {
 };
 
 void setDirection(int p_dir) {
+  // Save last moving direction for a restart.
+  if(p_dir == RELEASE && m_motorDirection != RELEASE) {
+    m_lastMotorDirection = m_motorDirection;
+  }
+  
   m_motorDirection = p_dir;
   motor->run(p_dir);
   m_lastDisplayMillis = 0;
@@ -146,7 +301,7 @@ void reverse() {
 
 void processTouch() {
   // Interrupt line seems to bounce a little...
-  if(millis() - m_lastTouchTime < 200) {
+  if(millis() - m_lastTouchTime < DEBOUNCE_TIME) {
     return;
   }
   
@@ -156,6 +311,16 @@ void processTouch() {
   int8_t touched = cap.touched();
   if(touched == 0) {
     // No touch detected
+    return;
+  }
+  
+  // If both stop & reset held, reset the counter.
+  if(
+    (touched & (1 << BTN_STOP1) || touched & (1 << BTN_STOP2))
+      &&
+        (touched & (1 << BTN_CANCEL))
+  ) {
+    button(BTN_RESET, false);
     return;
   }
   
@@ -171,33 +336,57 @@ void processTouch() {
     return;
   }
 
-  // FIXME: Menu state machine goes here...
-  switch(touchTranslated) {
-    case BTN_STOP1:
-    case BTN_STOP2:
-    case BTN_CANCEL:
-    case BTN_OK:
-      motorStop();
-      break;
+  button(touchTranslated, false);
+}
+
+byte buttonForRemotePin(byte p_btnPin) {
+  switch(p_btnPin) {
+  case PIN_REMOTE_2:
+    return BTN_STOP1;
+  case PIN_REMOTE_4:
+    return BTN_REVERSE;
+  case PIN_REMOTE_1:
+    return BTN_UP;
+  case PIN_REMOTE_3:
+    return BTN_DOWN;
     
-    case BTN_UP:
-      faster();
-      break;
-      
-    case BTN_DOWN:
-      slower();
-      break;
-    
-    case BTN_GO_CW:
-      motorCw();
-      break;
-    
-    case BTN_GO_CCW:
-      motorCcw();
-      break;
-    default:
-      break;
+  default: // Just in case...
+    return BTN_STOP1;
   }
+}
+
+/** @return 0 = not pushed, 1 = down, 2 = repeat. */
+void checkRemoteHold(byte p_btnPin) {
+  long downTime = m_remoteDownTime[remoteTimeIdx(p_btnPin)];
+  if(digReadPinB(p_btnPin)) {
+    // Button is down now
+    if(downTime >= 0) {
+      // It was down last time we looked too.  
+      // See if it's long enough to send a "held".
+      if(millis() - downTime >= REMOTE_HOLD_TIME) {
+        button(buttonForRemotePin(p_btnPin), true);
+      }
+      // else keep waiting...
+    } else if(millis() + downTime > DEBOUNCE_TIME) {
+      // downTime is negative which means it wasn't down last time we looked.
+      // We'll only trigger if it's been long enough since it was last released
+      // to not be a bounce.
+      button(buttonForRemotePin(p_btnPin), false);
+      m_remoteDownTime[remoteTimeIdx(p_btnPin)] = millis();
+    }
+  } else if(downTime > 0) {
+    // Button isn't down.  If downTime is positive, it WAS down so 
+    // store the time we noticed it up as a negative for later debounce
+    // checking.
+    m_remoteDownTime[remoteTimeIdx(p_btnPin)] = 0l - millis();
+  }
+}
+
+void checkRemoteButtons() {
+  checkRemoteHold(PIN_REMOTE_2);
+  checkRemoteHold(PIN_REMOTE_4);
+  checkRemoteHold(PIN_REMOTE_1);
+  checkRemoteHold(PIN_REMOTE_3);
 }
 
 void initTouch() {
@@ -213,27 +402,23 @@ void initTouch() {
   // Enable interrupts
   cap.writeRegister(CAP1188_INTERRUPT, 0xff);
  
-  // No multi-touch allowed.
-  cap.writeRegister(CAP1188_MTBLK, 0x80);
-  
   // Only repeat on up/down buttons
   cap.writeRegister(CAP1188_REPEAT_ENABLE, REPEAT_MASK);
   
-  // Slow interrupt repeat time.
+  // Slow interrupt repeat time.  Bits 3..0 have the repeat rate.
   byte rep = cap.readRegister(CAP1188_REPEAT_RATE);
-  rep |= 0x0f;
+  rep &= 0b11110000;
+  rep |= 0b00001001; // 1001 = 350ms
   cap.writeRegister(CAP1188_REPEAT_RATE, rep);
- /* 
+ 
   // Read current sensitivity register, zero out the bits we want, 
   // then add back our desired sensitivity setting.
   int8_t sens = cap.readRegister(CAP1188_SENSITIVITY);
   // Bits 6..4 contain sensitivity.  Rest should be left alone.
-  sens &= 0x8F;
-  // Values are 7..0 for least to most sensitive.  
-  // Shift over 4 bits & add in.
-  sens += (5 << 4); 
+  sens &= 0b10001111;
+  sens |= 0b00110000;
   cap.writeRegister(CAP1188_SENSITIVITY, sens);
-   */ 
+  
   // We might want the LED's for testing, but no sense having them eat current
   // sealed in an opaque box...
   cap.writeRegister(CAP1188_LEDLINK, 0);  
@@ -301,25 +486,6 @@ ISR(PCINT0_vect) {
   clearPci();
 }
 #endif
-
-void checkRemoteButtons() {
-  if(digReadPinB(PIN_REMOTE_2)) {
-    // FIXME: Restart if held?
-    motorStop();
-  }
-  
-  if(digReadPinB(PIN_REMOTE_4)) {
-    reverse();
-  }
-  
-  if(digReadPinB(PIN_REMOTE_1)) {
-    faster();
-  }
-  
-  if(digReadPinB(PIN_REMOTE_3)) {
-    slower();
-  }
-}
 
 // ISR for the hall switch.  Increment or decrement the turn count.
 void intHallSwitch() {

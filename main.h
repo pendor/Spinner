@@ -5,6 +5,9 @@
 
 // #define RF_INTERRUPTS
 
+#define EEPROM_SPEED_ADDR  0
+#define EEPROM_TURN_ADDR    1
+
 void slower();
 void faster();
 void bumpMotorSpeed(int p_bump);
@@ -16,6 +19,9 @@ void reverse();
 void processTouch();
 void checkRemoteButtons();
 void updateDisplay();
+void button();
+bool isDone();
+void saveSettings();
 
 void intTouchInput();
 void intHallSwitch();

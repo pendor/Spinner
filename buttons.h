@@ -13,8 +13,12 @@
 #define BTN_STOP1   3
 #define BTN_STOP2   4
 
+// Only on the remote, so not part of the touch indexes.
+#define BTN_REVERSE 100
+#define BTN_RESET   200
+
 // Allow repeat on the up & down buttons only.
-#define REPEAT_MASK 0x81
+#define REPEAT_MASK 0b10000001
 
 // Order to check buttons in more or less
 // least destructive order.
