@@ -47,10 +47,10 @@ char lineBuffer[LCD_COLS + 1];
 bool m_setTurnMode = false;
 
 // ms to hold button on remote before we decide it's held down.
-#define REMOTE_HOLD_TIME 300
+#define REMOTE_HOLD_TIME 1000
 
 // Ignore subsequence presses in this time.
-#define DEBOUNCE_TIME 200
+#define DEBOUNCE_TIME 300
 
 // Array of last button down times to see if remote is holding its button
 // (touch sensor thankfully does that on its own...)
@@ -202,8 +202,6 @@ void updateDisplay() {
 
 /** Handle a button push based on state machine mode. */
 void button(int p_button, bool p_isHeld) {
-  // FIXME: Menu state machine goes here...
-  m_lastDisplayMillis = 0;
   switch(p_button) {
   case BTN_STOP1:
   case BTN_STOP2:
@@ -222,6 +220,10 @@ void button(int p_button, bool p_isHeld) {
   case BTN_CANCEL:
     m_setTurnMode = false;
     motorStop();
+    break;
+  
+  case BTN_REVERSE:
+    reverse();
     break;
     
   case BTN_OK:
@@ -264,7 +266,9 @@ void button(int p_button, bool p_isHeld) {
     
   default:
     break;
-  } 
+  }
+  
+  m_lastDisplayMillis = 0;
 }
 
 void faster() {
@@ -387,7 +391,7 @@ void checkRemoteHold(byte p_btnPin) {
         button(buttonForRemotePin(p_btnPin), true);
       }
       // else keep waiting...
-    } else if(millis() + downTime > DEBOUNCE_TIME) {
+    } else if(millis() + downTime > (2 * DEBOUNCE_TIME)) {
       // downTime is negative which means it wasn't down last time we looked.
       // We'll only trigger if it's been long enough since it was last released
       // to not be a bounce.
